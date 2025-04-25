@@ -6,7 +6,6 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
-
 import java.util.*;
 
 @SpringBootApplication
@@ -20,24 +19,25 @@ public class BajajApplication implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        String registerUrl = "https://bfhldevapigw.healthrx.co.in/hiring/generateWebhook";
-        UserInfo userInfo = new UserInfo("John Doe", "REG12347", "john@example.com");
+        String url = "https://bfhldevapigw.healthrx.co.in/hiring/generateWebhook";
+
+        UserInfo user = new UserInfo("Pavan Kumar", "208", "pavan@example.com");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<UserInfo> entity = new HttpEntity<>(user, headers);
 
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<UserInfo> request = new HttpEntity<>(userInfo, headers);
-
-            ResponseEntity<WebhookResponse> response = restTemplate.postForEntity(registerUrl, request, WebhookResponse.class);
+            ResponseEntity<WebhookResponse> response = restTemplate.postForEntity(url, entity, WebhookResponse.class);
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                WebhookResponse resp = response.getBody();
+                WebhookResponse body = response.getBody();
+                int findId = body.getData().getFindId();
+                int n = body.getData().getN();
 
-                List<List<Integer>> mutualFollows = findMutualFollows(resp.getData().getUsers());
-
-                ResultQ1 result = new ResultQ1(userInfo.getRegNo(), mutualFollows);
-
-                sendResultWithRetry(resp.getWebhook(), resp.getAccessToken(), result, 4);
+                List<Integer> outcome = findNthLevelFollowers(body.getData().getUsers(), findId, n);
+                ResultQ2 result = new ResultQ2(user.getRegNo(), outcome);
+                sendToWebhook(body.getWebhook(), body.getAccessToken(), result);
             }
 
         } catch (Exception e) {
@@ -45,51 +45,57 @@ public class BajajApplication implements CommandLineRunner {
         }
     }
 
-    private List<List<Integer>> findMutualFollows(List<User> users) {
-        Map<Integer, Set<Integer>> followsMap = new HashMap<>();
+    private List<Integer> findNthLevelFollowers(List<User> users, int startId, int level) {
+        Map<Integer, List<Integer>> graph = new HashMap<>();
         for (User user : users) {
-            followsMap.put(user.getId(), new HashSet<>(user.getFollows()));
+            graph.put(user.getId(), user.getFollows());
         }
 
-        Set<String> seen = new HashSet<>();
-        List<List<Integer>> result = new ArrayList<>();
+        Set<Integer> visited = new HashSet<>();
+        Queue<Integer> queue = new LinkedList<>();
+        queue.offer(startId);
+        visited.add(startId);
 
-        for (User user : users) {
-            int id1 = user.getId();
-            for (int id2 : user.getFollows()) {
-                if (followsMap.containsKey(id2) && followsMap.get(id2).contains(id1)) {
-                    int min = Math.min(id1, id2);
-                    int max = Math.max(id1, id2);
-                    String key = min + "-" + max;
-                    if (!seen.contains(key)) {
-                        result.add(Arrays.asList(min, max));
-                        seen.add(key);
+        int currentLevel = 0;
+
+        while (!queue.isEmpty() && currentLevel < level) {
+            int size = queue.size();
+            for (int i = 0; i < size; i++) {
+                int current = queue.poll();
+                List<Integer> neighbors = graph.getOrDefault(current, Collections.emptyList());
+                for (int neighbor : neighbors) {
+                    if (!visited.contains(neighbor)) {
+                        queue.offer(neighbor);
+                        visited.add(neighbor);
                     }
                 }
             }
+            currentLevel++;
         }
+
+        List<Integer> result = new ArrayList<>(queue);
+        Collections.sort(result);
         return result;
     }
 
-    private void sendResultWithRetry(String url, String token, ResultQ1 result, int retries) {
+    private void sendToWebhook(String webhook, String token, ResultQ2 result) {
+        int attempts = 4;
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("Authorization", token);
 
-        HttpEntity<ResultQ1> request = new HttpEntity<>(result, headers);
+        HttpEntity<ResultQ2> request = new HttpEntity<>(result, headers);
 
-        while (retries-- > 0) {
+        while (attempts-- > 0) {
             try {
-                ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+                ResponseEntity<String> response = restTemplate.postForEntity(webhook, request, String.class);
                 if (response.getStatusCode().is2xxSuccessful()) {
-                    System.out.println("Successfully sent result");
+                    System.out.println("Webhook Success");
                     return;
                 }
             } catch (Exception e) {
-                System.err.println("Retrying... " + retries + " left");
+                System.out.println("Retrying...");
             }
         }
-
-        System.err.println("Failed to send result after retries.");
     }
 }

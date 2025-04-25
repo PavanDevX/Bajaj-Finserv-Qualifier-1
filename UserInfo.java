@@ -12,6 +12,4 @@ public class UserInfo {
         this.regNo = regNo;
         this.email = email;
     }
-
-    // Getters and Setters
 }

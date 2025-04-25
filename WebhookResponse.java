@@ -1,7 +1,6 @@
 package com.example.bajaj.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.util.List;
 
 public class WebhookResponse {
@@ -13,7 +12,17 @@ public class WebhookResponse {
     private Data data;
 
     public static class Data {
+        private int n;
+        private int findId;
         private List<User> users;
+
+        public int getN() {
+            return n;
+        }
+
+        public int getFindId() {
+            return findId;
+        }
 
         public List<User> getUsers() {
             return users;
